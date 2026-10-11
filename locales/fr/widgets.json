@@ -24,7 +24,7 @@
   "widgets.source.remote": "À distance",
   "widgets.source.relay": "Relais",
   "widgets.source.needs_library": "L’application a besoin d’une bibliothèque",
-  "widgets.source.new_shares": "Rechercher des bibliothèques partagées",
+  "widgets.source.new_shares": "Vérifier les partages",
   "widgets.source.unauthorized": "Non autorisé",
   "widgets.source.unreachable": "Injoignable",
   "widgets.source.insecure": "Non sécurisé",
@@ -112,7 +112,7 @@
     "many": "{heading} · {count} PISTES",
     "other": "{heading} · {count} PISTES"
   },
-  "widgets.reason.jail_help": "La réparation nécessite une TV rootée et l’accès à Homebrew Channel. Voir plxnative.com/troubleshooting/#playback-reports-jail_missing_rtkmem pour obtenir de l’aide.",
+  "widgets.reason.jail_help": "La réparation nécessite une TV rootée et Homebrew Channel. Aide : plxnative.com/troubleshooting/#playback-reports-jail_missing_rtkmem",
   "widgets.tracks.empty": "Aucune piste",
   "widgets.tracks.bytes": {
     "one": "{count} octet",
@@ -169,8 +169,8 @@
   "widgets.tracks.style": "Style",
   "widgets.tracks.style_size": "Taille",
   "widgets.tracks.style_position": "Position",
-  "widgets.tracks.style_image_note": "Les sous-titres image conservent leur taille et leur position.",
-  "widgets.tracks.style_styled_note": "Les sous-titres stylisés conservent leur taille et leur position.",
+  "widgets.tracks.style_image_note": "Les sous-titres image gardent leur taille et position.",
+  "widgets.tracks.style_styled_note": "Les sous-titres stylisés gardent leur taille et position.",
   "widgets.tracks.timing": "Synchronisation",
   "widgets.tracks.external_badge": "EXTERNE",
   "widgets.tracks.tone_white": "Blanc",
