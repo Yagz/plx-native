@@ -36,7 +36,7 @@
   "settings.retry": "Réessayer",
   "settings.onboard.failed": "Impossible de charger les bibliothèques",
   "settings.onboard.failed_reason": "Vérifiez la connexion, puis réessayez.",
-  "settings.onboard.copy": "Choisissez les bibliothèques affichées sur ce téléviseur. Vos favorites remplissent les rayons de l’accueil et les onglets de la bibliothèque ; les Paramètres les listent toutes.",
+  "settings.onboard.copy": "Choisissez les bibliothèques que ce téléviseur affiche. Vos bibliothèques favorites apparaissent sur l’accueil et dans les onglets de la bibliothèque ; les Paramètres les listent toutes.",
   "settings.onboard.shared": {
     "one": "{names} a partagé des bibliothèques avec vous. Choisissez vos favorites : ce sont elles qu’affichent l’Accueil et la Bibliothèque, et vous pouvez les modifier dans les Paramètres quand vous le souhaitez.",
     "many": "{names} ont partagé des bibliothèques avec vous. Choisissez vos favorites : ce sont elles qu’affichent l’Accueil et la Bibliothèque, et vous pouvez les modifier dans les Paramètres quand vous le souhaitez.",
