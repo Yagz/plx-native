@@ -109,28 +109,6 @@ impl ClockWarm {
     }
 }
 
-/// naive word-wrap to `max` chars/line (on word boundaries)
-fn wrap(s: &str, max: usize) -> Vec<String> {
-    if s.chars().count() <= max {
-        return vec![s.to_string()];
-    }
-    let mut lines = Vec::new();
-    let mut cur = String::new();
-    for word in s.split_whitespace() {
-        if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > max {
-            lines.push(std::mem::take(&mut cur));
-        }
-        if !cur.is_empty() {
-            cur.push(' ');
-        }
-        cur.push_str(word);
-    }
-    if !cur.is_empty() {
-        lines.push(cur);
-    }
-    lines
-}
-
 /// client-rendered subtitle line(s), bottom-center, synced to the video clock. Drawn
 /// every frame independent of the transport HUD; hidden when subtitles are off or no
 /// cue is active at the current position.
@@ -312,17 +290,59 @@ impl CaptionPager {
     }
 }
 
-/// The caption's lines: each newline-separated segment word-wrapped at the viewer's size. Every
-/// wrapped line is kept, so a long cue is never cut short; [`caption_layout`] fits the block.
+/// The caption's lines: each newline-separated segment word-wrapped to [`caption_wrap_width`],
+/// measured in the bold face it is drawn in. Every wrapped line is kept, so a long cue is never cut
+/// short; [`caption_layout`] fits the block.
 fn caption_wrap(text: &str, scale: f32) -> Vec<String> {
-    let max_chars = ((42.0 / scale).round() as usize).max(20);
+    let face = (CAPTION_FACE * scale).round() as c_int;
+    let measure = |s: &str| {
+        CString::new(s)
+            .map(|c| plx_gfx::text::text_width(c.as_ptr(), face, 1))
+            .unwrap_or(0.0)
+    };
+    let width = caption_wrap_width(scale);
     let mut lines: Vec<String> = Vec::new();
     for seg in text.split('\n') {
         let seg = seg.trim();
         if seg.is_empty() {
             continue;
         }
-        lines.extend(wrap(seg, max_chars));
+        lines.extend(wrap_px(seg, width, &measure));
+    }
+    lines
+}
+
+/// The caption's base face in px at the viewer's Medium size, before [`subtitle_size_scale`].
+/// Subtitle caption: media chrome, a documented carve-out from `theme::size` (see HUD_TITLE_SZ).
+const CAPTION_FACE: f32 = 36.0;
+
+/// The widest a caption line runs at the base face: about 42 characters of bold caption text, the
+/// usual subtitle line length. It grows with the viewer's size, so a larger size draws the SAME
+/// lines bigger rather than more, shorter lines (an Extra large cue used to wrap at 28 characters
+/// and run to twice the lines), up to the screen's side margins.
+const CAPTION_WRAP_W: f32 = 760.0;
+
+/// The pixel width a caption line wraps at for the viewer's size `scale`.
+fn caption_wrap_width(scale: f32) -> f32 {
+    (CAPTION_WRAP_W * scale).min(SCR_W - 2.0 * plx_ui::consts::MARGIN_X)
+}
+
+/// Greedy word-wrap of `s` to `width` px as `measure` reports them. A word wider than `width` on
+/// its own keeps a line to itself rather than being cut.
+fn wrap_px(s: &str, width: f32, measure: &impl Fn(&str) -> f32) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in s.split_whitespace() {
+        if !cur.is_empty() && measure(&format!("{cur} {word}")) > width {
+            lines.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(word);
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
     }
     lines
 }
@@ -368,8 +388,7 @@ fn caption_fit(lines: usize, scale: f32, baseline: f32, floor: f32) -> (CaptionL
     let mut fits = false;
     for &step in CAPTION_FIT_STEPS.iter() {
         let s = scale * step;
-        // subtitle caption: media chrome, a documented carve-out from theme::size (see HUD_TITLE_SZ)
-        lay = CaptionLayout { face: (36.0 * s).round() as i32, pitch: CAPTION_LINE_PITCH * s, top, lines };
+        lay = CaptionLayout { face: (CAPTION_FACE * s).round() as i32, pitch: CAPTION_LINE_PITCH * s, top, lines };
         if top + lines as f32 * lay.pitch <= floor {
             fits = true;
             break;
@@ -393,8 +412,9 @@ fn subtitle_ink_for(tone: plx_plex::plex::session::SubtitleTone) -> [f32; 4] {
 }
 
 /// The face-size multiplier for the viewer's Settings > Playback pick, applied to the plain-text
-/// caption's 36 px base face ([`draw_subtitle_message`]) and its line pitch/wrap width together,
-/// so a larger caption still wraps before it runs off either edge.
+/// caption's [`CAPTION_FACE`] ([`draw_subtitle_message`]) and its line pitch and wrap width
+/// ([`caption_wrap_width`]) together, so a larger caption keeps its lines and never runs past the
+/// screen's side margins.
 fn subtitle_size_scale(size: plx_plex::plex::session::SubtitleSize) -> f32 {
     use plx_plex::plex::session::SubtitleSize;
     match size {
@@ -3142,6 +3162,32 @@ mod tests {
         let wrapped = caption_wrap(long.trim(), 1.0);
         assert!(wrapped.len() > 3, "a long cue wraps past the anchor count, got {}", wrapped.len());
         assert_eq!(wrapped.join(" ").split_whitespace().count(), 120, "no word is lost");
+    }
+
+    /// **A larger size widens the line, it does not add lines.** An ordinary two-line cue at Extra
+    /// large wrapped at 28 characters, so it became four lines, stepped down to ~47 px (smaller
+    /// than the viewer asked for) and, before the cue pager, lost its tail at the three-line cap.
+    /// It must stay two lines, drawn at the full 54 px, on one page.
+    #[test]
+    fn a_two_line_cue_at_extra_large_stays_two_lines_at_full_size() {
+        let cue = "Je ne sais pas pourquoi tu es venu ici,\nmais tu ferais mieux de repartir.";
+        let lines = caption_wrap(cue, 1.5);
+        assert_eq!(lines, ["Je ne sais pas pourquoi tu es venu ici,", "mais tu ferais mieux de repartir."]);
+        let plan = CaptionPlan::new(lines, 1.5, SUB_BASE_Y, CAPTION_FLOOR_Y);
+        assert_eq!((plan.layout.face, plan.pages()), (54, 1), "full Extra large size, one page");
+    }
+
+    /// **No wrapped line is wider than the wrap width, and no size's width passes the side
+    /// margins**; only a single word wider than the width keeps a line of its own.
+    #[test]
+    fn caption_lines_stay_inside_the_wrap_width() {
+        for scale in [0.78f32, 1.0, 1.25, 1.5] {
+            assert!(caption_wrap_width(scale) <= SCR_W - 2.0 * plx_ui::consts::MARGIN_X, "scale {scale}");
+        }
+        let measure = |s: &str| s.chars().count() as f32 * 10.0;
+        let lines = wrap_px("aa bbb cccc dd eeeeeeeeeeee f", 80.0, &measure);
+        assert_eq!(lines, ["aa bbb", "cccc dd", "eeeeeeeeeeee", "f"]);
+        assert!(lines.iter().all(|l| measure(l) <= 80.0 || !l.contains(' ')), "{lines:?}");
     }
 
     /// **A 1-3 line caption lays out exactly as it did before the fit rule**: 36 px at the
