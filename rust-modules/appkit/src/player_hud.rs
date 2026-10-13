@@ -3191,9 +3191,9 @@ mod tests {
     #[test]
     fn a_two_line_cue_at_extra_large_stays_two_lines_at_full_size() {
         let xl = subtitle_size_scale(plx_plex::plex::session::SubtitleSize::ExtraLarge);
-        let cue = "Je ne sais pas pourquoi tu es venu ici,\nmais tu ferais mieux de repartir.";
+        let cue = "I don't know why you came here tonight,\nbut you had better leave right now.";
         let lines = caption_wrap(cue, xl, &FM);
-        assert_eq!(lines, ["Je ne sais pas pourquoi tu es venu ici,", "mais tu ferais mieux de repartir."]);
+        assert_eq!(lines, ["I don't know why you came here tonight,", "but you had better leave right now."]);
         let plan = CaptionPlan::new(lines, xl, SUB_BASE_Y, CAPTION_FLOOR_Y);
         assert_eq!((plan.layout.face, plan.pages()), (65, 1), "full Extra large size, one page");
     }
