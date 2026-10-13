@@ -319,12 +319,15 @@ const CAPTION_FACE: f32 = 36.0;
 /// The widest a caption line runs at the base face: about 42 characters of bold caption text, the
 /// usual subtitle line length. It grows with the viewer's size, so a larger size draws the SAME
 /// lines bigger rather than more, shorter lines (an Extra large cue used to wrap at 28 characters
-/// and run to twice the lines), up to the screen's side margins.
+/// and run to twice the lines), up to [`CAPTION_MAX_W`].
 const CAPTION_WRAP_W: f32 = 760.0;
+
+/// The widest a caption line ever runs, at any size: three quarters of the screen (owner's call).
+const CAPTION_MAX_W: f32 = SCR_W * 0.75;
 
 /// The pixel width a caption line wraps at for the viewer's size `scale`.
 fn caption_wrap_width(scale: f32) -> f32 {
-    (CAPTION_WRAP_W * scale).min(SCR_W - 2.0 * plx_ui::consts::MARGIN_X)
+    (CAPTION_WRAP_W * scale).min(CAPTION_MAX_W)
 }
 
 /// Greedy word-wrap of `s` to `width` px as `measure` reports them. A word wider than `width` on
@@ -415,13 +418,16 @@ fn subtitle_ink_for(tone: plx_plex::plex::session::SubtitleTone) -> [f32; 4] {
 /// caption's [`CAPTION_FACE`] ([`draw_subtitle_message`]) and its line pitch and wrap width
 /// ([`caption_wrap_width`]) together, so a larger caption keeps its lines and never runs past the
 /// screen's side margins.
-fn subtitle_size_scale(size: plx_plex::plex::session::SubtitleSize) -> f32 {
+///
+/// Medium draws 45 px: the owner judged the old ladder (28/36/45/54 px) one rung small next to the
+/// official Plex client on the TV, so every rung moved up one and Extra large gained a step.
+const fn subtitle_size_scale(size: plx_plex::plex::session::SubtitleSize) -> f32 {
     use plx_plex::plex::session::SubtitleSize;
     match size {
-        SubtitleSize::Small => 0.78,
-        SubtitleSize::Medium => 1.0,
-        SubtitleSize::Large => 1.25,
-        SubtitleSize::ExtraLarge => 1.5,
+        SubtitleSize::Small => 1.0,
+        SubtitleSize::Medium => 1.25,
+        SubtitleSize::Large => 1.5,
+        SubtitleSize::ExtraLarge => 1.8,
     }
 }
 
@@ -451,13 +457,17 @@ const SUB_CEIL_Y: f32 = SCR_H - 300.0;
 /// anchor's top and grows down ([`caption_layout`]); it never has lines cut — one too tall for
 /// the area at the smallest size is shown a page at a time ([`CaptionPlan`]).
 const CAPTION_ANCHOR_LINES: usize = 3;
-/// The vertical pitch of one caption line in [`draw_subtitle_message`] — its 36 px face plus
-/// leading.
+/// The vertical pitch of one caption line in [`draw_subtitle_message`] at scale 1 — its
+/// [`CAPTION_FACE`] plus leading; it scales with the face.
 const CAPTION_LINE_PITCH: f32 = 48.0;
+/// The scale of the default size (Medium), which the Timing capsule's y is set for.
+const DEFAULT_CAPTION_SCALE: f32 = subtitle_size_scale(plx_plex::plex::session::SubtitleSize::Medium);
 /// The Timing capsule's bottom y — [`SUB_BASE_Y`] cleared by the tallest caption block that stays
-/// bottom-anchored ([`CAPTION_ANCHOR_LINES`] at [`CAPTION_LINE_PITCH`]). A taller block grows down
-/// from the same top, so the capsule never overlaps any caption.
-pub const CAPSULE_BOTTOM_Y: f32 = SUB_BASE_Y - CAPTION_ANCHOR_LINES as f32 * CAPTION_LINE_PITCH;
+/// bottom-anchored at the default size ([`CAPTION_ANCHOR_LINES`] at [`CAPTION_LINE_PITCH`] scaled
+/// by [`DEFAULT_CAPTION_SCALE`]). A taller block grows down from the same top, so the capsule
+/// never overlaps a default-size caption; a Large or Extra large three-line block rises into it.
+pub const CAPSULE_BOTTOM_Y: f32 =
+    SUB_BASE_Y - CAPTION_ANCHOR_LINES as f32 * CAPTION_LINE_PITCH * DEFAULT_CAPTION_SCALE;
 
 /// Map a decoded image-subtitle rect from the stream's `cw`×`ch` authoring canvas onto the video
 /// rect — which is always the full panel here (the video track is authored 1920×1080; see the
@@ -3167,31 +3177,34 @@ mod tests {
     /// **A larger size widens the line, it does not add lines.** An ordinary two-line cue at Extra
     /// large wrapped at 28 characters, so it became four lines, stepped down to ~47 px (smaller
     /// than the viewer asked for) and, before the cue pager, lost its tail at the three-line cap.
-    /// It must stay two lines, drawn at the full 54 px, on one page.
+    /// It must stay two lines, drawn at the full Extra large size, on one page.
     #[test]
     fn a_two_line_cue_at_extra_large_stays_two_lines_at_full_size() {
+        let xl = subtitle_size_scale(plx_plex::plex::session::SubtitleSize::ExtraLarge);
         let cue = "Je ne sais pas pourquoi tu es venu ici,\nmais tu ferais mieux de repartir.";
-        let lines = caption_wrap(cue, 1.5);
+        let lines = caption_wrap(cue, xl);
         assert_eq!(lines, ["Je ne sais pas pourquoi tu es venu ici,", "mais tu ferais mieux de repartir."]);
-        let plan = CaptionPlan::new(lines, 1.5, SUB_BASE_Y, CAPTION_FLOOR_Y);
-        assert_eq!((plan.layout.face, plan.pages()), (54, 1), "full Extra large size, one page");
+        let plan = CaptionPlan::new(lines, xl, SUB_BASE_Y, CAPTION_FLOOR_Y);
+        assert_eq!((plan.layout.face, plan.pages()), (65, 1), "full Extra large size, one page");
     }
 
-    /// **No wrapped line is wider than the wrap width, and no size's width passes the side
-    /// margins**; only a single word wider than the width keeps a line of its own.
+    /// **No wrapped line is wider than the wrap width, and no size's width passes three quarters
+    /// of the screen**; only a single word wider than the width keeps a line of its own.
     #[test]
     fn caption_lines_stay_inside_the_wrap_width() {
-        for scale in [0.78f32, 1.0, 1.25, 1.5] {
-            assert!(caption_wrap_width(scale) <= SCR_W - 2.0 * plx_ui::consts::MARGIN_X, "scale {scale}");
-        }
+        use plx_plex::plex::session::SubtitleSize;
+        let widths: Vec<f32> = SubtitleSize::LADDER.iter().map(|&s| caption_wrap_width(subtitle_size_scale(s))).collect();
+        assert_eq!(widths, [760.0, 950.0, 1140.0, 1368.0]);
+        assert!(widths.iter().all(|&w| w <= 1440.0), "{widths:?}");
+        assert_eq!(caption_wrap_width(10.0), 1440.0, "any size is capped at 75% of 1920");
         let measure = |s: &str| s.chars().count() as f32 * 10.0;
         let lines = wrap_px("aa bbb cccc dd eeeeeeeeeeee f", 80.0, &measure);
         assert_eq!(lines, ["aa bbb", "cccc dd", "eeeeeeeeeeee", "f"]);
         assert!(lines.iter().all(|l| measure(l) <= 80.0 || !l.contains(' ')), "{lines:?}");
     }
 
-    /// **A 1-3 line caption lays out exactly as it did before the fit rule**: 36 px at the
-    /// viewer's default size, a 48 px pitch, and the block's bottom on the baseline.
+    /// **A 1-3 line caption lays out exactly as it did before the fit rule**: 36 px at scale 1
+    /// (the Small size), a 48 px pitch, and the block's bottom on the baseline.
     #[test]
     fn a_three_line_caption_keeps_its_size_and_position() {
         let lay = caption_layout(3, 1.0, SUB_BASE_Y, CAPTION_FLOOR_Y);
@@ -3206,7 +3219,7 @@ mod tests {
         assert_eq!((two.face, two.top), (36, 884.0));
     }
 
-    /// **A six-line block at the default size is too tall for the area below the capsule, so it
+    /// **A six-line block at scale 1 (Small) is too tall for the area below the capsule, so it
     /// steps down, and every one of its lines is still laid out inside the floor.**
     #[test]
     fn a_six_line_block_steps_down_and_keeps_every_line() {
@@ -3231,16 +3244,16 @@ mod tests {
     /// capsule.
     #[test]
     fn the_capsule_edge_is_fixed_and_a_taller_block_grows_away_from_it() {
-        assert_eq!(CAPSULE_BOTTOM_Y, 836.0);
+        assert_eq!(CAPSULE_BOTTOM_Y, 800.0);
         for n in [1usize, 3, 6] {
-            let lay = caption_layout(n, 1.0, SUB_BASE_Y, CAPTION_FLOOR_Y);
+            let lay = caption_layout(n, DEFAULT_CAPTION_SCALE, SUB_BASE_Y, CAPTION_FLOOR_Y);
             assert!(
                 lay.top >= CAPSULE_BOTTOM_Y,
                 "{n} lines: block top {} rises into the capsule (bottom {CAPSULE_BOTTOM_Y})",
                 lay.top
             );
         }
-        assert_eq!(caption_layout(6, 1.0, SUB_BASE_Y, CAPTION_FLOOR_Y).top, CAPSULE_BOTTOM_Y);
+        assert_eq!(caption_layout(6, DEFAULT_CAPTION_SCALE, SUB_BASE_Y, CAPTION_FLOOR_Y).top, CAPSULE_BOTTOM_Y);
     }
 
     /// A cue of `n` one-word lines (each its own segment, so the wrap keeps them as given).
@@ -3256,7 +3269,7 @@ mod tests {
     fn every_line_of_a_tall_cue_is_shown_on_screen_in_order() {
         const S: i64 = 1_000_000_000;
         for hud_up in [false, true] {
-            for scale in [0.8f32, 1.0, 1.25, 1.5] {
+            for scale in [1.0f32, 1.25, 1.5, 1.8] {
                 let (baseline, floor) = if hud_up { (SUB_CEIL_Y, SUB_CEIL_Y) } else { (SUB_BASE_Y, CAPTION_FLOOR_Y) };
                 for n in [3usize, 8, 20, 60] {
                     let pager = CaptionPager::default();
